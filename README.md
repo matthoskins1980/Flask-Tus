@@ -1,6 +1,16 @@
 # Flask-Tus
 Flask Extension implementing the Tus.io server protocol
 
+## Prerequisites (redis)
+
+Currently flask-tus is reliant on a local redis server.  This is used for caching information about
+uploads in progress.  It is on the roadmap to remove this dependancy.  You must install the redis python package
+for this extension to work.
+
+```
+pip install redis
+```
+
 ## Installation
 
 Installation from source (this repository)
@@ -17,7 +27,7 @@ pip install Flask-Tus
 
 ## Usage
 
-# demo.py
+### demo.py
 
 ```python
 from flask import Flask, render_template, send_from_directory
