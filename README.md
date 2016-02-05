@@ -38,5 +38,5 @@ app = Flask(__name__)
 tm = tus_manager(app)
 ```
 
-tus_manager(app) registers two new url endpoint /file-upload and /file-upload/<resource>.  You can not define views for those
+tus_manager(app) registers two new url endpoint /file-upload and /file-upload/\<resource\>.  You can not define views for those
 urls in your app.  Simply use any tus client and point it to  /file-upload as the endpoint
