@@ -14,41 +14,27 @@ except ImportError:
 
 class tus_manager(object):
 
-	def __init__(self, app=None):
+	def __init__(self, app=None, upload_url='/file-upload', upload_folder='uploads/'):
 		self.app = app
 		if app is not None:
-			self.init_app(app)
+			self.init_app(app, upload_url, upload_folder)
 
-	def init_app(self, app):
-		app.config.setdefault('TUS_ROOTDIR', '/file-upload')
-		app.config.setdefault('TUS_UPLOADSDIR', 'uploads')
+	def init_app(self, app, upload_url='/file-upload', upload_folder='uploads/'):
 
+		self.upload_url = upload_url
+		self.upload_folder = upload_folder
 		self.tus_api_version = '1.0.0'
 		self.tus_api_version_supported = '1.0.0'
 		self.tus_api_extensions = ['creation', 'termination']
 		self.tus_max_file_size = 4294967296 # 4GByte
 
-		# Use the newstyle teardown_appcontext if it's available,
-		# otherwise fall back to the request context
-		if hasattr(app, 'teardown_appcontext'):
-			app.teardown_appcontext(self.teardown)
-		else:
-			app.teardown_request(self.teardown)
-
 		# register the two file upload endpoints
-		app.add_url_rule(app.config['TUS_ROOTDIR'], 'file-upload', self.tus_file_upload, methods=['OPTIONS', 'POST'])
-		app.add_url_rule('{}/<resource_id>'.format( app.config['TUS_ROOTDIR'] ), 'file-upload-chunk', self.tus_file_upload_chunk, methods=['HEAD', 'PATCH', 'DELETE'])
+		app.add_url_rule(self.upload_url, 'file-upload', self.tus_file_upload, methods=['OPTIONS', 'POST'])
+		app.add_url_rule('{}/<resource_id>'.format( self.upload_url ), 'file-upload-chunk', self.tus_file_upload_chunk, methods=['HEAD', 'PATCH', 'DELETE'])
 
 	# handle redis server connection
 	def redis_connect(self):
 		return redis.Redis()
-
-	# handle teardown of redis connection
-	def teardown(self, app):
-#		ctx = stack.top
-#		if hasattr(ctx, 'tus_redis'):
-#			ctx.tus_redis.disconnect()
-		pass
 
 	@property
 	def redis_connection(self):
@@ -57,7 +43,6 @@ class tus_manager(object):
 			if not hasattr(ctx, 'tus_redis'):
 				ctx.tus_redis = self.redis_connect()
 			return ctx.tus_redis
-
 
 	def tus_file_upload(self):
 		response = make_response("", 200)
@@ -80,7 +65,7 @@ class tus_manager(object):
 				metadata[key] = base64.b64decode(value)
 
 			file_size = int(request.headers.get("Upload-Length", "0"))
-			resource_id = uuid.uuid4()
+			resource_id = str(uuid.uuid4())
 
 			p = self.redis_connection.pipeline()
 			p.setex("file-uploads/{}/filename".format(resource_id), "{}".format(metadata.get("filename")), 3600)
@@ -90,7 +75,7 @@ class tus_manager(object):
 			p.execute()
 
 			try:
-				f = open("{}/{}".format(self.app.config['TUS_UPLOADSDIR'], resource_id), "wb")
+				f = open( os.path.join( self.upload_folder, resource_id ), "wb")
 				f.seek( file_size - 1)
 				f.write("\0")
 				f.close()
@@ -100,7 +85,7 @@ class tus_manager(object):
 				return response
 
 			response.status_code = 201
-			response.headers['Location'] = '{}/{}'.format(self.app.config['TUS_ROOTDIR'], resource_id)
+			response.headers['Location'] = '{}/{}'.format(self.upload_url, resource_id)
 			response.autocorrect_location_header = False
 
 		else:
@@ -116,7 +101,7 @@ class tus_manager(object):
 		response.headers['Tus-Version'] = self.tus_api_version_supported
 
 		offset = self.redis_connection.get("file-uploads/{}/offset".format( resource_id ))
-		self.app.logger.info( offset );
+		upload_file_path = os.path.join( self.upload_folder, resource_id )
 
 		if request.method == 'HEAD':
 			offset = self.redis_connection.get("file-uploads/{}/offset".format( resource_id ))
@@ -132,7 +117,7 @@ class tus_manager(object):
 				return response
 
 		if request.method == 'DELETE':
-			os.unlink("{}/{}".format( self.app.config['TUS_UPLOADSDIR'], resource_id))
+			os.unlink( upload_file_path )
 
 			p = self.redis_connection.pipeline()
 			p.delete("file-uploads/{}/filename".format(resource_id))
@@ -144,41 +129,41 @@ class tus_manager(object):
 			response.status_code = 204
 			return respose
 		
-		filename = self.redis_connection.get("file-uploads/{}/filename".format( resource_id ))
-		if filename is None or os.path.lexists("{}/{}".format(self.app.config['TUS_UPLOADSDIR'], resource_id )) is False:
-			response.status_code = 410
+		if request.method == 'PATCH':
+			filename = self.redis_connection.get("file-uploads/{}/filename".format( resource_id ))
+			if filename is None or os.path.lexists( upload_file_path ) is False:
+				response.status_code = 410
+				return response
+
+			file_offset = int(request.headers.get("Upload-Offset", 0))
+			chunk_size = int(request.headers.get("Content-Length", 0))
+			file_size = int( self.redis_connection.get( "file-uploads/{}/file_size".format( resource_id )) )
+
+			if request.headers.get("Upload-Offset") != self.redis_connection.get( "file-uploads/{}/offset".format( resource_id )): # check to make sure we're in sync
+				response.status_code = 409 # HTTP 409 Conflict
+				return response
+
+			try:
+				f = open( upload_file_path, "r+b")
+			except IOError:
+				f = open( upload_file_path, "wb")
+			finally:
+				f.seek( file_offset )
+				f.write(request.data)
+				f.close()
+
+			new_offset = self.redis_connection.incrby( "file-uploads/{}/offset".format( resource_id ), chunk_size)
+			response.headers['Upload-Offset'] = new_offset
+
+			if file_size == new_offset: # file transfer complete, rename from resource id to actual filename
+				filename_parts = os.path.splitext(filename)
+				counter = 1
+				while True:
+					if os.path.lexists( os.path.join( self.upload_folder, filename )):
+						filename = "{}{}.{}".format( filename_parts[0], filename_parts[1], counter )
+						counter += 1
+					else:
+						break
+
+				os.rename( upload_file_path, os.path.join( self.upload_folder, filename ))
 			return response
-
-		file_offset = int(request.headers.get("Upload-Offset", 0))
-		chunk_size = int(request.headers.get("Content-Length", 0))
-		file_size = int( self.redis_connection.get( "file-uploads/{}/file_size".format( resource_id )) )
-
-		if request.headers.get("Upload-Offset") != self.redis_connection.get( "file-uploads/{}/offset".format( resource_id )): # check to make sure we're in sync
-			response.status_code = 409 # HTTP 409 Conflict
-			return response
-
-		try:
-			f = open( "{}/{}".format(self.app.config['TUS_UPLOADSDIR'], resource_id), "r+b")
-		except IOError:
-			f = open( "{}/{}".format(self.app.config['TUS_UPLOADSDIR'], resource_id), "wb")
-		finally:
-			f.seek( file_offset )
-			f.write(request.data)
-			f.close()
-
-		new_offset = self.redis_connection.incrby( "file-uploads/{}/offset".format( resource_id ), chunk_size)
-		response.headers['Upload-Offset'] = new_offset
-
-		if file_size == new_offset: # file transfer complete, rename from resource id to actual filename
-			filename_parts = os.path.splitext(filename)
-			counter = 1
-			while True:
-				if os.path.lexists( "{}/{}".format(self.app.config['TUS_UPLOADSDIR'], filename)):
-					filename = "{}{}.{}".format( filename_parts[0], filename_parts[1], counter )
-					counter += 1
-				else:
-					break
-
-			os.rename( "{}/{}".format( self.app.config['TUS_UPLOADSDIR'], resource_id ), "{}/{}".format( self.app.config['TUS_UPLOADSDIR'], filename ))
-
-		return response
