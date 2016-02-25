@@ -85,7 +85,7 @@ class tus_manager(object):
                 return response
 
             response.status_code = 201
-            response.headers['Location'] = '{}/{}'.format(self.upload_url, resource_id)
+            response.headers['Location'] = '{}/{}/{}'.format(request.url_root, self.upload_url, resource_id)
             response.autocorrect_location_header = False
 
         else:
