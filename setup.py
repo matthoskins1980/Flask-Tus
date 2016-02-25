@@ -11,7 +11,7 @@ from setuptools import setup
 
 setup(
     name='Flask-Tus',
-    version='0.2.0',
+    version='0.3.1',
     url='http://github.com/matthoskins1980/Flask-Tus/',
     license='MIT',
     author='Matt Hoskins',
@@ -24,7 +24,7 @@ setup(
     platforms='any',
     install_requires=[
         'Flask',
-				'Redis'
+		'Redis'
     ],
     classifiers=[
         'Environment :: Web Environment',

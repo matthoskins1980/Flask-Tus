@@ -47,6 +47,10 @@ class tus_manager(object):
     def tus_file_upload(self):
         response = make_response("", 200)
 
+        if request.method == 'OPTIONS' and request.headers.get('Access-Control-Request-Method', None) is not None:
+            # CORS option request, return 200
+            return response
+
         if request.headers.get("Tus-Resumable") is not None:
             response.headers['Tus-Resumable'] = self.tus_api_version
             response.headers['Tus-Version'] = self.tus_api_version_supported
