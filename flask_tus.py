@@ -83,9 +83,6 @@ class tus_manager(object):
                 (key, value) = kv.split(" ")
                 metadata[key] = base64.b64decode(value)
 
-            print os.path.lexists( os.path.join( self.upload_folder, metadata.get("filename") ))
-            print self.file_overwrite
-
             if os.path.lexists( os.path.join( self.upload_folder, metadata.get("filename") )) and self.file_overwrite is False:
                 response.status_code = 409
                 return response
@@ -184,7 +181,6 @@ class tus_manager(object):
             if file_size == new_offset: # file transfer complete, rename from resource id to actual filename
                 os.rename( upload_file_path, os.path.join( self.upload_folder, filename ))
 
-                print "acasdf"
                 if self.upload_finish_cb is not None:
                     self.upload_finish_cb()
 
