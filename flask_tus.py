@@ -14,22 +14,24 @@ except ImportError:
 
 class tus_manager(object):
 
-    def __init__(self, app=None, upload_url='/file-upload', upload_folder='uploads/'):
+    def __init__(self, app=None, upload_url='/file-upload', upload_folder='uploads/', overwrite=True, upload_finish_cb=None):
         self.app = app
         if app is not None:
-            self.init_app(app, upload_url, upload_folder)
+            self.init_app(app, upload_url, upload_folder, overwrite=overwrite, upload_finish_cb=upload_finish_cb)
 
-    def init_app(self, app, upload_url='/file-upload', upload_folder='uploads/'):
+    def init_app(self, app, upload_url='/file-upload', upload_folder='uploads/', overwrite=True, upload_finish_cb=None):
 
         self.upload_url = upload_url
         self.upload_folder = upload_folder
         self.tus_api_version = '1.0.0'
         self.tus_api_version_supported = '1.0.0'
-        self.tus_api_extensions = ['creation', 'termination']
+        self.tus_api_extensions = ['creation', 'termination', 'file-check']
         self.tus_max_file_size = 4294967296 # 4GByte
+        self.file_overwrite = overwrite
+        self.upload_finish_cb = upload_finish_cb
 
         # register the two file upload endpoints
-        app.add_url_rule(self.upload_url, 'file-upload', self.tus_file_upload, methods=['OPTIONS', 'POST'])
+        app.add_url_rule(self.upload_url, 'file-upload', self.tus_file_upload, methods=['OPTIONS', 'POST', 'GET'])
         app.add_url_rule('{}/<resource_id>'.format( self.upload_url ), 'file-upload-chunk', self.tus_file_upload_chunk, methods=['HEAD', 'PATCH', 'DELETE'])
 
     # handle redis server connection
@@ -47,7 +49,20 @@ class tus_manager(object):
     def tus_file_upload(self):
         response = make_response("", 200)
 
-        if request.method == 'OPTIONS' and request.headers.get('Access-Control-Request-Method', None) is not None:
+        if request.method == 'GET':
+            metadata = {}
+            for kv in request.headers.get("Upload-Metadata", None).split(","):
+                (key, value) = kv.split(" ")
+                metadata[key] = base64.b64decode(value)
+
+            if metadata.get("filename", None) is not None and metadata.get("filename").upper() in [f.upper() for f in os.listdir( os.path.dirname( self.upload_folder ))]:
+                response.headers['Tus-File-Name'] = metadata.get("filename")
+                response.headers['Tus-File-Exists'] = True
+            else:
+                response.headers['Tus-File-Exists'] = False
+            return response
+
+        elif request.method == 'OPTIONS' and request.headers.get('Access-Control-Request-Method', None) is not None:
             # CORS option request, return 200
             return response
 
@@ -67,6 +82,13 @@ class tus_manager(object):
             for kv in request.headers.get("Upload-Metadata", None).split(","):
                 (key, value) = kv.split(" ")
                 metadata[key] = base64.b64decode(value)
+
+            print os.path.lexists( os.path.join( self.upload_folder, metadata.get("filename") ))
+            print self.file_overwrite
+
+            if os.path.lexists( os.path.join( self.upload_folder, metadata.get("filename") )) and self.file_overwrite is False:
+                response.status_code = 409
+                return response
 
             file_size = int(request.headers.get("Upload-Length", "0"))
             resource_id = str(uuid.uuid4())
@@ -160,14 +182,10 @@ class tus_manager(object):
             response.headers['Upload-Offset'] = new_offset
 
             if file_size == new_offset: # file transfer complete, rename from resource id to actual filename
-                filename_parts = os.path.splitext(filename)
-                counter = 1
-                while True:
-                    if os.path.lexists( os.path.join( self.upload_folder, filename )):
-                        filename = "{}{}.{}".format( filename_parts[0], filename_parts[1], counter )
-                        counter += 1
-                    else:
-                        break
-
                 os.rename( upload_file_path, os.path.join( self.upload_folder, filename ))
+
+                print "acasdf"
+                if self.upload_finish_cb is not None:
+                    self.upload_finish_cb()
+
             return response
