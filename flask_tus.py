@@ -55,7 +55,11 @@ class tus_manager(object):
                 (key, value) = kv.split(" ")
                 metadata[key] = base64.b64decode(value)
 
-            if metadata.get("filename", None) is not None and metadata.get("filename").upper() in [f.upper() for f in os.listdir( os.path.dirname( self.upload_folder ))]:
+            if metadata.get("filename", None) is None:
+                return make_response("metadata filename is not set", 404)
+
+            (filename_name, extension) = os.path.splitext( metadata.get("filename"))
+            if filename_name.upper() in [os.path.splitext(f)[0].upper() for f in os.listdir( os.path.dirname( self.upload_folder ))]:
                 response.headers['Tus-File-Name'] = metadata.get("filename")
                 response.headers['Tus-File-Exists'] = True
             else:
