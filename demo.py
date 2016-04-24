@@ -3,9 +3,9 @@ from flask.ext.tus import tus_manager
 import os
 
 app = Flask(__name__)
-tm = tus_manager(app, upload_url='/newsflow/api/file-upload')
+tm = tus_manager(app, upload_url='/file-upload')
 
-@app.route("/demo")
+@app.route("/")
 def demo():
 	return render_template("demo.html", upload_url = tm.upload_url )
 
