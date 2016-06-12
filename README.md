@@ -40,3 +40,10 @@ tm = tus_manager(app, upload_url='/file-upload', upload_folder='uploads/')
 
 tus_manager() registers two new url endpoint /file-upload and /file-upload/\<resource\>.  You can not define views for those
 urls in your app.  Simply use any tus client and point it to  /file-upload as the endpoint
+
+```
+Building (local instructions for me
+```
+
+1. python setup.py sdist
+2. twine upload <filecreated>

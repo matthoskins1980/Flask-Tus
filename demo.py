@@ -1,9 +1,18 @@
-from flask import Flask, render_template, send_from_directory
+from flask import Flask, render_template, send_from_directory, current_app
 from flask.ext.tus import tus_manager
+
 import os
 
 app = Flask(__name__)
 tm = tus_manager(app, upload_url='/file-upload')
+
+@tm.upload_file_handler
+def upload_file_hander( upload_file_path, filename ):
+    app = current_app
+
+    app.logger.info( "doing something cool with {}, {}".format( upload_file_path, filename))
+    return filename
+
 
 @app.route("/")
 def demo():

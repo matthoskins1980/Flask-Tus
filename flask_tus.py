@@ -29,10 +29,16 @@ class tus_manager(object):
         self.tus_max_file_size = 4294967296 # 4GByte
         self.file_overwrite = overwrite
         self.upload_finish_cb = upload_finish_cb
+        self.upload_file_handler_cb = None
 
         # register the two file upload endpoints
         app.add_url_rule(self.upload_url, 'file-upload', self.tus_file_upload, methods=['OPTIONS', 'POST', 'GET'])
         app.add_url_rule('{}/<resource_id>'.format( self.upload_url ), 'file-upload-chunk', self.tus_file_upload_chunk, methods=['HEAD', 'PATCH', 'DELETE'])
+
+
+    def upload_file_handler( self, callback ):
+        self.upload_file_handler_cb = callback
+        return callback
 
     # handle redis server connection
     def redis_connect(self):
@@ -47,6 +53,7 @@ class tus_manager(object):
             return ctx.tus_redis
 
     def tus_file_upload(self):
+
         response = make_response("", 200)
 
         if request.method == 'GET':
@@ -113,6 +120,7 @@ class tus_manager(object):
 
             response.status_code = 201
             response.headers['Location'] = '{}/{}/{}'.format(request.url_root, self.upload_url, resource_id)
+            response.headers['Tus-Temp-Filename'] = resource_id
             response.autocorrect_location_header = False
 
         else:
@@ -159,6 +167,7 @@ class tus_manager(object):
         if request.method == 'PATCH':
             filename = self.redis_connection.get("file-uploads/{}/filename".format( resource_id ))
             if filename is None or os.path.lexists( upload_file_path ) is False:
+                self.app.logger.info( "PATCH sent for resource_id that does not exist. {}".format( resource_id))
                 response.status_code = 410
                 return response
 
@@ -181,9 +190,13 @@ class tus_manager(object):
 
             new_offset = self.redis_connection.incrby( "file-uploads/{}/offset".format( resource_id ), chunk_size)
             response.headers['Upload-Offset'] = new_offset
+            response.headers['Tus-Temp-Filename'] = resource_id
 
             if file_size == new_offset: # file transfer complete, rename from resource id to actual filename
-                os.rename( upload_file_path, os.path.join( self.upload_folder, filename ))
+                if self.upload_file_handler_cb is None:
+                    os.rename( upload_file_path, os.path.join( self.upload_folder, filename ))
+                else:
+                    filename = self.upload_file_handler_cb( upload_file_path, filename ) 
 
                 if self.upload_finish_cb is not None:
                     self.upload_finish_cb()
