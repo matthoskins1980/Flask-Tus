@@ -31,7 +31,7 @@ pip install Flask-Tus
 
 ```python
 from flask import Flask, render_template, send_from_directory
-from flask.ext.tus import tus_manager
+from flask_tus import tus_manager
 import os
 
 app = Flask(__name__)
