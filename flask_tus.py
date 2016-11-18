@@ -198,6 +198,13 @@ class tus_manager(object):
                 else:
                     filename = self.upload_file_handler_cb( upload_file_path, filename ) 
 
+                p = self.redis_connection.pipeline()
+                p.delete("file-uploads/{}/filename".format(resource_id))
+                p.delete("file-uploads/{}/file_size".format(resource_id))
+                p.delete("file-uploads/{}/offset".format(resource_id))
+                p.delete("file-uploads/{}/upload-metadata".format(resource_id))
+                p.execute()
+
                 if self.upload_finish_cb is not None:
                     self.upload_finish_cb()
 
