@@ -52,15 +52,19 @@ class tus_manager(object):
                 ctx.tus_redis = self.redis_connect()
             return ctx.tus_redis
 
+    def _parse_metadata():
+        metadata = {}
+        for kv in request.headers.get("Upload-Metadata", None).split(","):
+            (key, value) = kv.split(" ")
+            metadata[key] = str(base64.b64decode(value))
+        return metadata
+
     def tus_file_upload(self):
 
         response = make_response("", 200)
 
         if request.method == 'GET':
-            metadata = {}
-            for kv in request.headers.get("Upload-Metadata", None).split(","):
-                (key, value) = kv.split(" ")
-                metadata[key] = base64.b64decode(value)
+            metadata = _parse_metadata()
 
             if metadata.get("filename", None) is None:
                 return make_response("metadata filename is not set", 404)
@@ -89,10 +93,7 @@ class tus_manager(object):
                 return response
 
             # process upload metadata
-            metadata = {}
-            for kv in request.headers.get("Upload-Metadata", None).split(","):
-                (key, value) = kv.split(" ")
-                metadata[key] = base64.b64decode(value)
+            metadata = _parse_metadata()
 
             if os.path.lexists( os.path.join( self.upload_folder, metadata.get("filename") )) and self.file_overwrite is False:
                 response.status_code = 409
