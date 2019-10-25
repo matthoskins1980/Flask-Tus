@@ -103,10 +103,10 @@ class tus_manager(object):
             resource_id = str(uuid.uuid4())
 
             p = self.redis_connection.pipeline()
-            p.setex("file-uploads/{}/filename".format(resource_id), "{}".format(metadata.get("filename")), 3600)
-            p.setex("file-uploads/{}/file_size".format(resource_id), file_size, 3600)
-            p.setex("file-uploads/{}/offset".format(resource_id), 0, 3600)
-            p.setex("file-uploads/{}/upload-metadata".format(resource_id), request.headers.get("Upload-Metadata"), 3600)
+            p.setex("file-uploads/{}/filename".format(resource_id), 3600, "{}".format(metadata.get("filename")))
+            p.setex("file-uploads/{}/file_size".format(resource_id), 3600, file_size)
+            p.setex("file-uploads/{}/offset".format(resource_id), 3600, 0)
+            p.setex("file-uploads/{}/upload-metadata".format(resource_id), 3600, request.headers.get("Upload-Metadata"))
             p.execute()
 
             try:
