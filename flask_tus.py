@@ -1,4 +1,4 @@
-from flask import request, jsonify, make_response, current_app
+from flask import Blueprint, request, jsonify, make_response, current_app
 import base64
 import os
 import redis
@@ -13,16 +13,10 @@ except ImportError:
     from flask import _request_ctx_stack as stack
 
 
-class tus_manager(object):
+class TusManager(object):
 
     def __init__(self, app=None, upload_url='/file-upload', upload_folder='uploads/', overwrite=True,
                  upload_finish_cb=None):
-        self.app = app
-        if app is not None:
-            self.init_app(app, upload_url, upload_folder, overwrite=overwrite, upload_finish_cb=upload_finish_cb)
-
-    def init_app(self, app, upload_url='/file-upload', upload_folder='uploads/', overwrite=True, upload_finish_cb=None):
-
         self.upload_url = upload_url
         self.upload_folder = upload_folder
         self.tus_api_version = '1.0.0'
@@ -32,11 +26,20 @@ class tus_manager(object):
         self.file_overwrite = overwrite
         self.upload_finish_cb = upload_finish_cb
         self.upload_file_handler_cb = None
+        self.blueprint = Blueprint('tus-manager', __name__)
 
-        # register the two file upload endpoints
-        app.add_url_rule(self.upload_url, 'file-upload', self.tus_file_upload, methods=['OPTIONS', 'POST', 'GET'])
-        app.add_url_rule('{}/<resource_id>'.format(self.upload_url), 'file-upload-chunk', self.tus_file_upload_chunk,
-                         methods=['HEAD', 'PATCH', 'DELETE'])
+        self.blueprint.add_url_rule(self.upload_url, 'file-upload', self.tus_file_upload,
+                                    methods=['OPTIONS', 'POST', 'GET'])
+        self.blueprint.add_url_rule('{}/<resource_id>'.format(self.upload_url), 'file-upload-chunk',
+                                    self.tus_file_upload_chunk,
+                                    methods=['HEAD', 'PATCH', 'DELETE'])
+
+        if app is not None:
+            self.init_app(app)
+
+    def init_app(self, app):
+        self.app = app
+        self.app.register_blueprint(self.blueprint)
 
     def upload_file_handler(self, callback):
         self.upload_file_handler_cb = callback
