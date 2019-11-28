@@ -12,9 +12,11 @@ try:
 except ImportError:
     from flask import _request_ctx_stack as stack
 
+
 class tus_manager(object):
 
-    def __init__(self, app=None, upload_url='/file-upload', upload_folder='uploads/', overwrite=True, upload_finish_cb=None):
+    def __init__(self, app=None, upload_url='/file-upload', upload_folder='uploads/', overwrite=True,
+                 upload_finish_cb=None):
         self.app = app
         if app is not None:
             self.init_app(app, upload_url, upload_folder, overwrite=overwrite, upload_finish_cb=upload_finish_cb)
@@ -26,17 +28,17 @@ class tus_manager(object):
         self.tus_api_version = '1.0.0'
         self.tus_api_version_supported = '1.0.0'
         self.tus_api_extensions = ['creation', 'termination', 'file-check']
-        self.tus_max_file_size = 4294967296 # 4GByte
+        self.tus_max_file_size = 4294967296  # 4GByte
         self.file_overwrite = overwrite
         self.upload_finish_cb = upload_finish_cb
         self.upload_file_handler_cb = None
 
         # register the two file upload endpoints
         app.add_url_rule(self.upload_url, 'file-upload', self.tus_file_upload, methods=['OPTIONS', 'POST', 'GET'])
-        app.add_url_rule('{}/<resource_id>'.format( self.upload_url ), 'file-upload-chunk', self.tus_file_upload_chunk, methods=['HEAD', 'PATCH', 'DELETE'])
+        app.add_url_rule('{}/<resource_id>'.format(self.upload_url), 'file-upload-chunk', self.tus_file_upload_chunk,
+                         methods=['HEAD', 'PATCH', 'DELETE'])
 
-
-    def upload_file_handler( self, callback ):
+    def upload_file_handler(self, callback):
         self.upload_file_handler_cb = callback
         return callback
 
@@ -56,7 +58,7 @@ class tus_manager(object):
         metadata = {}
         for kv in request.headers.get("Upload-Metadata", None).split(","):
             (key, value) = kv.split(" ")
-            metadata[key] = str(base64.b64decode(value))
+            metadata[key] = base64.b64decode(value).decode('utf-8')
         return metadata
 
     def tus_file_upload(self):
@@ -69,8 +71,9 @@ class tus_manager(object):
             if metadata.get("filename", None) is None:
                 return make_response("metadata filename is not set", 404)
 
-            (filename_name, extension) = os.path.splitext( metadata.get("filename"))
-            if filename_name.upper() in [os.path.splitext(f)[0].upper() for f in os.listdir( os.path.dirname( self.upload_folder ))]:
+            (filename_name, extension) = os.path.splitext(metadata.get("filename"))
+            if filename_name.upper() in [os.path.splitext(f)[0].upper() for f in
+                                         os.listdir(os.path.dirname(self.upload_folder))]:
                 response.headers['Tus-File-Name'] = metadata.get("filename")
                 response.headers['Tus-File-Exists'] = True
             else:
@@ -95,7 +98,8 @@ class tus_manager(object):
             # process upload metadata
             metadata = self._parse_metadata()
 
-            if os.path.lexists( os.path.join( self.upload_folder, metadata.get("filename") )) and self.file_overwrite is False:
+            if os.path.lexists(
+                    os.path.join(self.upload_folder, metadata.get("filename"))) and self.file_overwrite is False:
                 response.status_code = 409
                 return response
 
@@ -110,9 +114,10 @@ class tus_manager(object):
             p.execute()
 
             try:
-                f = open( os.path.join( self.upload_folder, resource_id ), "wb")
-                f.seek( file_size - 1)
-                f.write("\0")
+                f = open(os.path.join(self.upload_folder, resource_id), "wb")
+                f.seek(file_size - 1)
+                # TODO: is this really necessary? Writing a null byte to end of file?
+                f.write(bytes('\0', 'utf-8'))
                 f.close()
             except IOError as e:
                 self.app.logger.error("Unable to create file: {}".format(e))
@@ -136,11 +141,11 @@ class tus_manager(object):
         response.headers['Tus-Resumable'] = self.tus_api_version
         response.headers['Tus-Version'] = self.tus_api_version_supported
 
-        offset = self.redis_connection.get("file-uploads/{}/offset".format( resource_id ))
-        upload_file_path = os.path.join( self.upload_folder, resource_id )
+        offset = self.redis_connection.get("file-uploads/{}/offset".format(resource_id))
+        upload_file_path = os.path.join(self.upload_folder, resource_id)
 
         if request.method == 'HEAD':
-            offset = self.redis_connection.get("file-uploads/{}/offset".format( resource_id ))
+            length = self.redis_connection.get("file-uploads/{}/file_size".format(resource_id))
             if offset is None:
                 response.status_code = 404
                 return response
@@ -148,12 +153,14 @@ class tus_manager(object):
             else:
                 response.status_code = 200
                 response.headers['Upload-Offset'] = offset
+                if length is not None:
+                    response.headers['Upload-Length'] = length
                 response.headers['Cache-Control'] = 'no-store'
 
                 return response
 
         if request.method == 'DELETE':
-            os.unlink( upload_file_path )
+            os.unlink(upload_file_path)
 
             p = self.redis_connection.pipeline()
             p.delete("file-uploads/{}/filename".format(resource_id))
@@ -164,40 +171,43 @@ class tus_manager(object):
 
             response.status_code = 204
             return respose
-        
+
         if request.method == 'PATCH':
-            filename = self.redis_connection.get("file-uploads/{}/filename".format( resource_id ))
-            if filename is None or os.path.lexists( upload_file_path ) is False:
-                self.app.logger.info( "PATCH sent for resource_id that does not exist. {}".format( resource_id))
+            filename = self.redis_connection.get("file-uploads/{}/filename".format(resource_id)).decode('utf-8')
+            if filename is None or os.path.lexists(upload_file_path) is False:
+                self.app.logger.info("PATCH sent for resource_id that does not exist. {}".format(resource_id))
                 response.status_code = 410
                 return response
 
             file_offset = int(request.headers.get("Upload-Offset", 0))
             chunk_size = int(request.headers.get("Content-Length", 0))
-            file_size = int( self.redis_connection.get( "file-uploads/{}/file_size".format( resource_id )) )
+            file_size = int(self.redis_connection.get("file-uploads/{}/file_size".format(resource_id)))
 
-            if request.headers.get("Upload-Offset") != self.redis_connection.get( "file-uploads/{}/offset".format( resource_id )): # check to make sure we're in sync
-                response.status_code = 409 # HTTP 409 Conflict
+            header_offset = request.headers.get("Upload-Offset")
+            redis_offset = self.redis_connection.get("file-uploads/{}/offset".format(resource_id)).decode('utf-8')
+
+            if header_offset != redis_offset:
+                response.status_code = 409  # HTTP 409 Conflict
                 return response
 
             try:
-                f = open( upload_file_path, "r+b")
+                f = open(upload_file_path, "r+b")
             except IOError:
-                f = open( upload_file_path, "wb")
+                f = open(upload_file_path, "wb")
             finally:
-                f.seek( file_offset )
+                f.seek(file_offset)
                 f.write(request.data)
                 f.close()
 
-            new_offset = self.redis_connection.incrby( "file-uploads/{}/offset".format( resource_id ), chunk_size)
+            new_offset = self.redis_connection.incrby("file-uploads/{}/offset".format(resource_id), chunk_size)
             response.headers['Upload-Offset'] = new_offset
             response.headers['Tus-Temp-Filename'] = resource_id
 
-            if file_size == new_offset: # file transfer complete, rename from resource id to actual filename
+            if file_size == new_offset:  # file transfer complete, rename from resource id to actual filename
                 if self.upload_file_handler_cb is None:
-                    os.rename( upload_file_path, os.path.join( self.upload_folder, filename ))
+                    os.rename(upload_file_path, os.path.join(self.upload_folder, filename))
                 else:
-                    filename = self.upload_file_handler_cb( upload_file_path, filename ) 
+                    filename = self.upload_file_handler_cb(upload_file_path, filename)
 
                 p = self.redis_connection.pipeline()
                 p.delete("file-uploads/{}/filename".format(resource_id))
