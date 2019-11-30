@@ -67,6 +67,8 @@ class TusManager(object):
     def tus_file_upload(self):
 
         response = make_response("", 200)
+        if 'Upload-Metadata' in request.headers:
+            response.headers['Upload-Metadata'] = request.headers['Upload-Metadata']
 
         if request.method == 'GET':
             metadata = self._parse_metadata()
@@ -141,6 +143,8 @@ class TusManager(object):
 
     def tus_file_upload_chunk(self, resource_id):
         response = make_response("", 204)
+        if 'Upload-Metadata' in request.headers:
+            response.headers['Upload-Metadata'] = request.headers['Upload-Metadata']
         response.headers['Tus-Resumable'] = self.tus_api_version
         response.headers['Tus-Version'] = self.tus_api_version_supported
 
@@ -207,17 +211,18 @@ class TusManager(object):
             response.headers['Tus-Temp-Filename'] = resource_id
 
             if file_size == new_offset:  # file transfer complete, rename from resource id to actual filename
-                if self.upload_file_handler_cb is None:
-                    os.rename(upload_file_path, os.path.join(self.upload_folder, filename))
-                else:
-                    filename = self.upload_file_handler_cb(upload_file_path, filename)
-
-                p = self.redis_connection.pipeline()
-                p.delete("file-uploads/{}/filename".format(resource_id))
-                p.delete("file-uploads/{}/file_size".format(resource_id))
-                p.delete("file-uploads/{}/offset".format(resource_id))
-                p.delete("file-uploads/{}/upload-metadata".format(resource_id))
-                p.execute()
+                try:
+                    if self.upload_file_handler_cb is None:
+                        os.rename(upload_file_path, os.path.join(self.upload_folder, filename))
+                    else:
+                        filename = self.upload_file_handler_cb(upload_file_path, filename)
+                finally:
+                    p = self.redis_connection.pipeline()
+                    p.delete("file-uploads/{}/filename".format(resource_id))
+                    p.delete("file-uploads/{}/file_size".format(resource_id))
+                    p.delete("file-uploads/{}/offset".format(resource_id))
+                    p.delete("file-uploads/{}/upload-metadata".format(resource_id))
+                    p.execute()
 
                 if self.upload_finish_cb is not None:
                     self.upload_finish_cb()
