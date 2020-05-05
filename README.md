@@ -1,6 +1,11 @@
 # Flask-Tus
 Flask Extension implementing the Tus.io server protocol
 
+As of May, 2020, I am using this code in a production enterprise application
+running on Google Compute Engine with Uppy as the frontend (Javascript client).
+YMMV, but I'm confident this _can_ work. The code could use some work, but it
+does in fact work.
+
 ## Prerequisites (redis)
 
 Currently flask-tus is reliant on a local redis server.  This is used for caching information about
