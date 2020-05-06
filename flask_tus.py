@@ -17,8 +17,6 @@ class TusManager(object):
 
     def __init__(self, app=None, upload_url='/file-upload', upload_folder='uploads/', overwrite=True,
                  upload_finish_cb=None):
-        self.upload_url = upload_url
-        self.upload_folder = upload_folder
         self.tus_api_version = '1.0.0'
         self.tus_api_version_supported = '1.0.0'
         self.tus_api_extensions = ['creation', 'termination', 'file-check']
@@ -26,16 +24,25 @@ class TusManager(object):
         self.file_overwrite = overwrite
         self.upload_finish_cb = upload_finish_cb
         self.upload_file_handler_cb = None
+
         self.blueprint = Blueprint('tus-manager', __name__)
-        
-        self._register_routes()
 
         if app is not None:
-            self.init_app(app)
+            self.init_app(app, upload_url, upload_folder)
+
+
+    def init_app(self, app, upload_url=None, upload_folder=None):
+        if upload_url is not None:
+            self.upload_url = upload_url
+        if upload_folder is not None:
+            self.upload_folder = upload_folder
+        self._register_routes()
+        self.app = app
+        self.app.register_blueprint(self.blueprint)
 
 
     def _register_routes(self):
-        
+
         # Note on routing names and method names.
         # Use '-' to separate words/parts in endpoint.
         # Use '_" to separate words/parts in method name.
@@ -67,10 +74,6 @@ class TusManager(object):
         self.blueprint.add_url_rule(
             f"{self.upload_url}/<resource_id>", 'tus-1-delete', self.tus_1_delete, methods=['DELETE'])
 
-
-    def init_app(self, app):
-        self.app = app
-        self.app.register_blueprint(self.blueprint)
 
     def upload_file_handler(self, callback):
         self.upload_file_handler_cb = callback
@@ -116,7 +119,15 @@ class TusManager(object):
         else:
             response.headers['Tus-File-Exists'] = False
         return response
-    
+
+
+    def create_resource_id(self):
+        return str(uuid.uuid4())
+
+
+    def create_url(self, resource_id):
+        return '{}/{}/{}'.format(request.url_root, self.upload_url, resource_id)
+
 
     def tus_creation_1_create(self):
         """Implements POST to create file according to Tus protocol Creation extension"""
@@ -143,7 +154,7 @@ class TusManager(object):
             return response
 
         file_size = int(request.headers.get("Upload-Length", "0"))
-        resource_id = str(uuid.uuid4())
+        resource_id = self.create_resource_id()
 
         p = self.redis_connection.pipeline()
         p.setex("file-uploads/{}/filename".format(resource_id), 3600, "{}".format(metadata.get("filename")))
@@ -160,7 +171,7 @@ class TusManager(object):
             return response
 
         response.status_code = 201
-        response.headers['Location'] = '{}/{}/{}'.format(request.url_root, self.upload_url, resource_id)
+        response.headers['Location'] = self.create_url(resource_id)
         response.headers['Tus-Temp-Filename'] = resource_id
         response.autocorrect_location_header = False
 
